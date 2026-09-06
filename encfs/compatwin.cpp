@@ -633,7 +633,7 @@ unix::stat(const char *path, struct stat_st *buffer)
   //VLOG(1) << "NOTIFY -- unix::stat";
   memset(buffer, 0, sizeof(*buffer));
 
-  std::wstring fn = utf8_to_wfn(path).c_str();
+  std::wstring fn = utf8_to_wfn(path);
   if (fn.length() && fn[fn.length() - 1] == L'\\')
     fn.resize(fn.length() - 1);
   if (strpbrk(path, "?*") != NULL) {
@@ -647,39 +647,19 @@ unix::stat(const char *path, struct stat_st *buffer)
   FILETIME ftLastAccessTime = {};
   FILETIME ftLastWriteTime = {};
   FILETIME ftCreationTime = {};
-  bool gotInfo = false;
 
-  // Prefer an open handle so we can use GetFileSizeEx (single source of truth).
-  HANDLE hFile = CreateFileW(fn.c_str(), GENERIC_READ,
-    FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
-    NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-
-  if (hFile != INVALID_HANDLE_VALUE) {
-    BY_HANDLE_FILE_INFORMATION hfi;
-    ZeroMemory(&hfi, sizeof(hfi));
-    if (GetFileInformationByHandle(hFile, &hfi)) {
-      attrs = hfi.dwFileAttributes;
-      ino = (static_cast<uint64_t>(hfi.nFileIndexHigh) << 32) |
-            static_cast<uint64_t>(hfi.nFileIndexLow);
-      ftLastAccessTime = hfi.ftLastAccessTime;
-      ftLastWriteTime = hfi.ftLastWriteTime;
-      ftCreationTime = hfi.ftCreationTime;
-
-      LARGE_INTEGER li;
-      if (!(attrs & FILE_ATTRIBUTE_DIRECTORY) && GetFileSizeEx(hFile, &li)) {
-        size = static_cast<uint64_t>(li.QuadPart);
-      } else {
-        size = (static_cast<uint64_t>(hfi.nFileSizeHigh) << 32) |
-               static_cast<uint64_t>(hfi.nFileSizeLow);
-      }
-      gotInfo = true;
-    }
-    CloseHandle(hFile);
-  }
-
-  if (!gotInfo) {
-    // Fallback when CreateFile fails (e.g. sharing) — use FindFirstFile only.
-    // https://bugs.ruby-lang.org/issues/6845
+  // Primary path: metadata without opening the file (reliable size + timestamps).
+  WIN32_FILE_ATTRIBUTE_DATA fad;
+  ZeroMemory(&fad, sizeof(fad));
+  if (GetFileAttributesExW(fn.c_str(), GetFileExInfoStandard, &fad)) {
+    attrs = fad.dwFileAttributes;
+    size = (static_cast<uint64_t>(fad.nFileSizeHigh) << 32) |
+           static_cast<uint64_t>(fad.nFileSizeLow);
+    ftLastAccessTime = fad.ftLastAccessTime;
+    ftLastWriteTime = fad.ftLastWriteTime;
+    ftCreationTime = fad.ftCreationTime;
+  } else {
+    // Fallback: FindFirstFile (handles some sharing / special name cases).
     WIN32_FIND_DATAW wfd;
     ZeroMemory(&wfd, sizeof(wfd));
     HANDLE hFind = FindFirstFileW(fn.c_str(), &wfd);
@@ -695,7 +675,27 @@ unix::stat(const char *path, struct stat_st *buffer)
     ftLastAccessTime = wfd.ftLastAccessTime;
     ftLastWriteTime = wfd.ftLastWriteTime;
     ftCreationTime = wfd.ftCreationTime;
-    ino = 0;
+  }
+
+  // Optional: inode via handle (not required for size display).
+  HANDLE hFile = CreateFileW(fn.c_str(), FILE_READ_ATTRIBUTES,
+    FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
+    NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+  if (hFile != INVALID_HANDLE_VALUE) {
+    BY_HANDLE_FILE_INFORMATION hfi;
+    ZeroMemory(&hfi, sizeof(hfi));
+    if (GetFileInformationByHandle(hFile, &hfi)) {
+      ino = (static_cast<uint64_t>(hfi.nFileIndexHigh) << 32) |
+            static_cast<uint64_t>(hfi.nFileIndexLow);
+      // Prefer handle size when available (should match attributes data).
+      if (!(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+        LARGE_INTEGER li;
+        if (GetFileSizeEx(hFile, &li) && li.QuadPart >= 0) {
+          size = static_cast<uint64_t>(li.QuadPart);
+        }
+      }
+    }
+    CloseHandle(hFile);
   }
 
   int drive;

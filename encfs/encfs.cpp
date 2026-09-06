@@ -253,16 +253,15 @@ int encfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
       std::string name = dt.nextPlaintextName(&fileType, &inode);
       while (!name.empty()) {
-        struct stat_st st;
-        memset(&st, 0, sizeof(st));
-        st.st_ino = inode;
-        st.st_mode = fileType << 12;
-
+        // Dokan FUSE walk_directory copies a non-NULL stbuf as-is and does
+        // *not* call getattr. EncFS only knows ino/mode here, so size/times
+        // would stay 0 (or garbage if uninitialized). Pass NULL to force
+        // getattr for full Windows FindFiles metadata.
 // TODO: add offset support.
 #if defined(fuse_fill_dir_flags)
-        if (filler(buf, name.c_str(), &st, 0, 0)) break;
+        if (filler(buf, name.c_str(), NULL, 0, 0)) break;
 #else
-        if (filler(buf, name.c_str(), &st, 0)) break;
+        if (filler(buf, name.c_str(), NULL, 0)) break;
 #endif
 
         name = dt.nextPlaintextName(&fileType, &inode);
