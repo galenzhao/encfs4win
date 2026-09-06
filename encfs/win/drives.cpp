@@ -100,20 +100,28 @@ void Drive::Mount(HWND hwnd)
     }
 
     // process terminated
-    DWORD readed;
+    DWORD readed = 0;
     char output[2048];
     switch (WaitForSingleObject(subProcess->hProcess, 200)) {
     case WAIT_OBJECT_0:
-    case WAIT_ABANDONED:
-      if (ReadFile(proc->hOut, output, sizeof(output) - 1, &readed, NULL)) {
-        output[readed] = 0;
-        utf8_to_wchar_buf(output, cmd, LENGTH(cmd));
+    case WAIT_ABANDONED: {
+      DWORD exitCode = 0;
+      GetExitCodeProcess(subProcess->hProcess, &exitCode);
+      output[0] = 0;
+      if (proc->hOut) {
+        // Drain whatever encfs printed (password errors go to stdout).
+        if (ReadFile(proc->hOut, output, sizeof(output) - 1, &readed, NULL) && readed > 0)
+          output[readed] = 0;
       }
-      else {
-        _stprintf(cmd, _T("Unknown error mounting drive %c:"), mnt[0]);
+      if (output[0]) {
+        utf8_to_wchar_buf(output, cmd, LENGTH(cmd));
+      } else {
+        _stprintf(cmd, _T("Mount failed for drive %c: (exit %u)"), mnt[0],
+                  (unsigned)exitCode);
       }
       subProcess.reset();
       throw truntime_error(cmd);
+    }
     }
   }
   if (subProcess)

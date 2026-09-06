@@ -47,6 +47,17 @@ static void SetPath()
     return;
   *p = 0;
   SetCurrentDirectory(path);
+
+  // Prefer encfs.exe / Dokan DLLs next to encfsw over anything else on PATH.
+  TCHAR envPath[32768];
+  DWORD n = GetEnvironmentVariable(_T("PATH"), envPath, LENGTH(envPath));
+  if (n > 0 && n < LENGTH(envPath)) {
+    TCHAR newPath[32768];
+    _sntprintf(newPath, LENGTH(newPath), _T("%s;%s"), path, envPath);
+    SetEnvironmentVariable(_T("PATH"), newPath);
+  } else {
+    SetEnvironmentVariable(_T("PATH"), path);
+  }
 }
 
 ULONG dokanVersion = 0;
