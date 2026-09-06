@@ -764,6 +764,10 @@ int main(int argc, char *argv[]) {
 
   // Remember our context for (Windows) signal handling 
   saved_ctx = ctx;
+#if defined(WIN32)
+  // Empty busy-report so GUI knows mount is initially safe to unmount.
+  saved_ctx->publishBusyStatus();
+#endif
 
   int returnCode = EXIT_FAILURE;
 
@@ -942,6 +946,23 @@ BOOL WINAPI signal_callback_handler(DWORD dwType)
     case CTRL_LOGOFF_EVENT:
     case CTRL_SHUTDOWN_EVENT:
 
+      // Refuse only when open files still have unsynced writes.
+      // (Dokan maps many Explorer opens to O_RDWR; that alone is not enough.)
+      {
+        const size_t nBusy = saved_ctx->unsyncedOpenCount();
+        if (nBusy > 0) {
+          auto paths = saved_ctx->unsyncedOpenPaths();
+          RLOG(WARNING) << "ConsoleHandler: Refuse unmount, " << nBusy
+                        << " file(s) open with unsynced writes: "
+                        << saved_ctx->opts->mountPoint;
+          for (const auto &p : paths) {
+            RLOG(WARNING) << "  busy: " << p;
+          }
+          saved_ctx->publishBusyStatus();
+          return TRUE;
+        }
+      }
+
       pthread_mutex_lock(&saved_ctx->wakeupMutex);
 
       // cleanly unmount FS 
@@ -949,6 +970,10 @@ BOOL WINAPI signal_callback_handler(DWORD dwType)
       if (unmountFS(saved_ctx.get())) {
         // wait for main thread to wake us up
         pthread_cond_wait(&saved_ctx->wakeupCond, &saved_ctx->wakeupMutex);
+      } else if (saved_ctx->isMounted()) {
+        // Busy or detach-only; keep serving the mount.
+        pthread_mutex_unlock(&saved_ctx->wakeupMutex);
+        return TRUE;
       }
 
       pthread_mutex_unlock(&saved_ctx->wakeupMutex);

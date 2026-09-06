@@ -104,6 +104,8 @@ class DirNode {
                                      const char *requestor, int flags,
                                      int *openResult);
 
+  EncFS_Context *context() const { return ctx; }
+
   std::string cipherPath(const char *plaintextPath);
   std::string cipherPathWithoutRoot(const char *plaintextPath);
   std::string plainPath(const char *cipherPath);

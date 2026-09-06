@@ -12,6 +12,7 @@
 #include "drives.h"
 #include "guiutils.h"
 #include "FileUtils.h"
+#include "EncFSBusyIpc.h"
 #include "fuse.h"
 #include <utils.h>
 
@@ -186,37 +187,87 @@ static BOOL WINAPI HandlerRoutine(DWORD)
   return TRUE;
 }
 
-void Drive::Umount(HWND)
+static bool ReadUnmountBusyPaths(DWORD pid, std::tstring *outPaths)
+{
+  if (outPaths)
+    outPaths->clear();
+
+  wchar_t name[128];
+  encfs::EncFSBusyIpcMappingNameW(pid, name, 128);
+
+  HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
+  if (!mapping)
+    return false;
+
+  auto *status = static_cast<encfs::EncFSBusyIpcStatus *>(
+      MapViewOfFile(mapping, FILE_MAP_READ, 0, 0,
+                    sizeof(encfs::EncFSBusyIpcStatus)));
+  if (!status) {
+    CloseHandle(mapping);
+    return false;
+  }
+
+  bool busy = false;
+  const LONG count = status->unsyncedCount;
+  if (status->magic == encfs::ENCFS_BUSY_IPC_MAGIC &&
+      status->version == encfs::ENCFS_BUSY_IPC_VERSION && count > 0 &&
+      status->paths[0] != 0) {
+    busy = true;
+    if (outPaths) {
+      TCHAR wbuf[encfs::ENCFS_BUSY_PATHS_BYTES];
+      utf8_to_wchar_buf(status->paths, wbuf, LENGTH(wbuf));
+      *outPaths = wbuf;
+    }
+  }
+
+  UnmapViewOfFile(status);
+  CloseHandle(mapping);
+  return busy;
+}
+
+void Drive::Umount(HWND hwnd)
 {
   // check mounted
   CheckMounted();
   if (!mounted)
     throw truntime_error(_T("Cannot unmount a not mounted drive"));
 
+  // Check shared-memory busy status published by encfs BEFORE unmount.
+  // (Ctrl+C often does not reach CREATE_NO_WINDOW children.)
+  if (subProcess) {
+    std::tstring busyPaths;
+    if (ReadUnmountBusyPaths(subProcess->pid, &busyPaths)) {
+      TCHAR msg[4096];
+      _sntprintf(msg, LENGTH(msg),
+                 _T("Cannot unmount: files still have unsynced writes.\n")
+                 _T("Close those programs and try again.\n\n%s"),
+                 busyPaths.c_str());
+      MessageBox(hwnd, msg, _T("EncFS"), MB_ICONWARNING | MB_OK);
+      return;
+    }
+  }
+
   unmountRequested = true;
 
-  // unmount
+  // Remove the Dokan mount point first (reliable from the parent process).
   fuse_unmount(wchar_to_utf8_cstr(mnt).c_str(), NULL);
 
   if (subProcess) {
-    // attach console to allow sending ctrl-c
     AttachConsole(subProcess->pid);
-
-    // disable ctrl-c to not exit this process
     SetConsoleCtrlHandler(HandlerRoutine, TRUE);
 
-    if (!GenerateConsoleCtrlEvent(CTRL_C_EVENT, subProcess->pid)
-      && !GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, subProcess->pid))
+    if (!GenerateConsoleCtrlEvent(CTRL_C_EVENT, subProcess->pid) &&
+        !GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, subProcess->pid)) {
       TerminateProcess(subProcess->hProcess, 0);
+    }
 
-    // force exit
     if (WaitForSingleObject(subProcess->hProcess, 2000) == WAIT_TIMEOUT)
       TerminateProcess(subProcess->hProcess, 0);
 
-    // close the console
     FreeConsole();
     SetConsoleCtrlHandler(HandlerRoutine, FALSE);
   }
+
   CheckMounted();
 }
 

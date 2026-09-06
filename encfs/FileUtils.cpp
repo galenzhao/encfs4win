@@ -1692,6 +1692,10 @@ bool unmountFS(EncFS_Context *ctx) {
     return false;
   }
 
+  if (!ctx->syncForUnmount()) {
+    return false;
+  }
+
   RLOG(WARNING) << "Unmounting filesystem: " << ctx->opts->mountPoint;
   fuse_unmount(ctx->opts->mountPoint.c_str(), NULL);
   return true;

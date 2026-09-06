@@ -597,12 +597,22 @@ int _do_truncate(FileNode *fnode, FUSE_OFF_T size) { return fnode->truncate(size
 
 int encfs_truncate(const char *path, long long size) {
   if (isReadOnly(NULL)) return -EROFS;
-  return withFileNode("truncate", path, NULL, bind(_do_truncate, _1, size));
+  int res =
+      withFileNode("truncate", path, NULL, bind(_do_truncate, _1, size));
+  if (res == ESUCCESS) {
+    context()->markDirty(path);
+  }
+  return res;
 }
 
 int encfs_ftruncate(const char *path, long long size, struct fuse_file_info *fi) {
   if (isReadOnly(NULL)) return -EROFS;
-  return withFileNode("ftruncate", path, fi, bind(_do_truncate, _1, size));
+  int res =
+      withFileNode("ftruncate", path, fi, bind(_do_truncate, _1, size));
+  if (res == ESUCCESS) {
+    context()->markDirty(path);
+  }
+  return res;
 }
 
 int _do_utime(EncFS_Context *, const string &cyName, struct utimbuf *buf) {
@@ -690,7 +700,7 @@ int encfs_open(const char *path, struct fuse_file_info *file) {
               << file->flags;
 
       if (res >= 0) {
-        ctx->putNode(path, fnode);
+        ctx->putNode(path, fnode, file->flags);
         file->fh = fnode->fuseFh;
         res = ESUCCESS;
       }
@@ -757,6 +767,14 @@ int encfs_release(const char *path, struct fuse_file_info *finfo) {
       return -EBADF;
 #endif
     }
+    // Written files: sync on release then drop from dirty set (keeps set bounded).
+    if (ctx->isDirty(path)) {
+      int sres = fnode->sync(true);
+      if (sres < 0) {
+        RLOG(WARNING) << "sync on release failed for " << path << ": " << sres;
+      }
+      ctx->clearDirty(path);
+    }
     ctx->eraseNode(path, fnode);
     return ESUCCESS;
   } catch (encfs::Error &err) {
@@ -794,8 +812,12 @@ int _do_write(FileNode *fnode, unsigned char *ptr, size_t size, FUSE_OFF_T offse
 int encfs_write(const char *path, const char *buf, size_t size, long long offset,
                 struct fuse_file_info *file) {
   if (isReadOnly(NULL) || isFileReadOnly(path) == 1) return -EROFS;
-  return withFileNode("write", path, file,
-                      bind(_do_write, _1, (unsigned char *)buf, size, offset));
+  int res = withFileNode("write", path, file,
+                         bind(_do_write, _1, (unsigned char *)buf, size, offset));
+  if (res >= 0) {
+    context()->markDirty(path);
+  }
+  return res;
 }
 
 // statfs works even if encfs is detached..

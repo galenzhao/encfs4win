@@ -31,6 +31,8 @@
 #include <cstring>
 
 #include "CipherFileIO.h"
+#include "Context.h"
+#include "DirNode.h"
 #include "Error.h"
 #include "FileIO.h"
 #include "FileNode.h"
@@ -198,6 +200,9 @@ int FileNode::open(int flags) const {
   Lock _lock(mutex);
 
   int res = io->open(flags);
+  if (res >= 0 && isWritableOpenFlags(flags) && parent && parent->context()) {
+    parent->context()->upgradeOpenFlags(_pname.c_str(), flags);
+  }
   return res;
 }
 
