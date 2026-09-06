@@ -890,45 +890,22 @@ int main(int argc, char *argv[]) {
     having the filesystem unmounted from underneath open files!
 */
 const int ActivityCheckInterval = 10;
-static bool unmountFS(EncFS_Context *ctx);
 
 static void *idleMonitor(void *_arg) {
   EncFS_Context *ctx = (EncFS_Context *)_arg;
   std::shared_ptr<EncFS_Args> arg = ctx->args;
 
   const int timeoutCycles = 60 * arg->idleTimeout / ActivityCheckInterval;
-  int idleCycles = -1;
 
   pthread_mutex_lock(&ctx->wakeupMutex);
 
   while (ctx->running) {
-    int usage = ctx->getAndResetUsageCounter();
-
-    if (usage == 0 && ctx->isMounted())
-      ++idleCycles;
-    else
-      idleCycles = 0;
-
-    if (idleCycles >= timeoutCycles) {
-      int openCount = ctx->openFileCount();
-      if (openCount == 0) {
-	    VLOG(1) << "Preparing to unmount due to inactivity: "
-		  << arg->opts->mountPoint;
-		
-        if (unmountFS(ctx)) {
-          // wait for main thread to wake us up
-          pthread_cond_wait(&ctx->wakeupCond, &ctx->wakeupMutex);
-          break;
-        }
-      } else {
-        RLOG(WARNING) << "Filesystem " << arg->opts->mountPoint
-                      << " inactivity detected, but still " << openCount
-                      << " opened files";
-      }
+    // usageAndUnmount handles idle counting / open-file checks / unmount
+    // under contextMutex (upstream v1.9.5 idle race fix).
+    if (ctx->usageAndUnmount(timeoutCycles)) {
+      pthread_cond_wait(&ctx->wakeupCond, &ctx->wakeupMutex);
+      break;
     }
-
-    VLOG(1) << "idle cycle count: " << idleCycles << ", timeout after "
-            << timeoutCycles;
 
     struct timeval currentTime;
     gettimeofday(&currentTime, 0);
@@ -943,23 +920,6 @@ static void *idleMonitor(void *_arg) {
   VLOG(1) << "Idle monitoring thread exiting";
 
   return 0;
-}
-
-static bool unmountFS(EncFS_Context *ctx) {
-  std::shared_ptr<EncFS_Args> arg = ctx->args;
-  if (arg->opts->mountOnDemand) {
-    VLOG(1) << "Detaching filesystem: "
-            << arg->opts->mountPoint;
-
-    ctx->setRoot(std::shared_ptr<DirNode>());
-    return false;
-  } else {
-    // Time to unmount!
-    RLOG(WARNING) << "Unmounting filesystem: "
-                  << arg->opts->mountPoint;
-    fuse_unmount(arg->opts->mountPoint.c_str(), NULL);
-    return true;
-  }
 }
 
 #ifdef WIN32

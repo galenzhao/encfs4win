@@ -19,11 +19,13 @@
  */
 
 #include "easylogging++.h"
+#include <cerrno>
 #include <utility>
 
 #include "Context.h"
 #include "DirNode.h"
 #include "Error.h"
+#include "FileNode.h"
 #include "Mutex.h"
 
 namespace encfs {
@@ -34,6 +36,9 @@ EncFS_Context::EncFS_Context() {
   pthread_mutex_init(&contextMutex, 0);
 
   usageCount = 0;
+  idleCount = -1;
+  isUnmounting = false;
+  currentFuseFh = 1;
 }
 
 EncFS_Context::~EncFS_Context() {
@@ -44,13 +49,27 @@ EncFS_Context::~EncFS_Context() {
   // release all entries from map
   openFiles.clear();
 }
+
 std::shared_ptr<DirNode> EncFS_Context::getRoot(int *errCode) {
+  return getRoot(errCode, false);
+}
+
+std::shared_ptr<DirNode> EncFS_Context::getRoot(int *errCode,
+                                                bool skipUsageCount) {
   std::shared_ptr<DirNode> ret;
   do {
     {
       Lock lock(contextMutex);
+      if (isUnmounting) {
+        *errCode = -EBUSY;
+        break;
+      }
       ret = root;
-      ++usageCount;
+      // On some systems, stat of "/" is allowed even if the calling user is
+      // not allowed to list / to go deeper. Do not then count this call.
+      if (!skipUsageCount) {
+        ++usageCount;
+      }
     }
 
     if (!ret) {
@@ -74,26 +93,51 @@ void EncFS_Context::setRoot(const std::shared_ptr<DirNode> &r) {
 
 bool EncFS_Context::isMounted() { return root.get() != nullptr; }
 
-int EncFS_Context::getAndResetUsageCounter() {
-  Lock lock(contextMutex);
+// Called periodically by the idle monitoring thread.
+// Returns true if FS has really been unmounted, false otherwise.
+bool EncFS_Context::usageAndUnmount(int timeoutCycles) {
+  {
+    Lock lock(contextMutex);
 
-  int count = usageCount;
-  usageCount = 0;
+    if (root == nullptr) {
+      return false;
+    }
 
-  return count;
+    if (usageCount == 0) {
+      ++idleCount;
+    } else {
+      idleCount = 0;
+    }
+    VLOG(1) << "idle cycle count: " << idleCount << ", timeout at "
+            << timeoutCycles;
+
+    usageCount = 0;
+
+    if (idleCount < timeoutCycles) {
+      return false;
+    }
+
+    if (!openFiles.empty()) {
+      if (idleCount % timeoutCycles == 0) {
+        RLOG(WARNING) << "Filesystem inactive, but " << openFiles.size()
+                      << " files opened: " << this->opts->mountPoint;
+      }
+      return false;
+    }
+    if (!this->opts->mountOnDemand) {
+      isUnmounting = true;
+    }
+  }  // release contextMutex before unmount
+
+  return unmountFS(this);
 }
 
-int EncFS_Context::openFileCount() const {
-  Lock lock(contextMutex);
-
-  return openFiles.size();
-}
 std::shared_ptr<FileNode> EncFS_Context::lookupNode(const char *path) {
   Lock lock(contextMutex);
 
   FileMap::iterator it = openFiles.find(std::string(path));
   if (it != openFiles.end()) {
-    // all the items in the set point to the same node.. so just use the
+    // all the items in the list point to the same node.. so just use the
     // first
     return it->second.front();
   }
@@ -111,26 +155,62 @@ void EncFS_Context::renameNode(const char *from, const char *to) {
   }
 }
 
-FileNode *EncFS_Context::putNode(const char *path,
-                                 std::shared_ptr<FileNode> &&node) {
+void EncFS_Context::putNode(const char *path,
+                            const std::shared_ptr<FileNode> &node) {
   Lock lock(contextMutex);
   auto &list = openFiles[std::string(path)];
-  list.push_front(std::move(node));
-  return list.front().get();
+  // The length of "list" serves as the reference count.
+  list.push_front(node);
+  fuseFhMap[node->fuseFh] = node;
 }
 
-void EncFS_Context::eraseNode(const char *path, FileNode *pl) {
+void EncFS_Context::eraseNode(const char *path,
+                              const std::shared_ptr<FileNode> &fnode) {
   Lock lock(contextMutex);
 
   FileMap::iterator it = openFiles.find(std::string(path));
+#if defined(WIN32) || defined(__CYGWIN__)
+  // When renaming a file, Windows first opens it, renames it and then closes
+  // it. Filenode may have then been renamed too.
+  if (it == openFiles.end()) {
+    RLOG(WARNING)
+        << "Filenode to erase not found, file has certainly been renamed: "
+        << path;
+    return;
+  }
+#endif
   rAssert(it != openFiles.end());
+  auto &list = it->second;
 
-  it->second.pop_front();
+  auto findIter = std::find(list.begin(), list.end(), fnode);
+  rAssert(findIter != list.end());
+  list.erase(findIter);
 
-  // if no more references to this file, remove the record all together
-  if (it->second.empty()) {
+  // If no reference to "fnode" remains, drop the entry from fuseFhMap
+  // and overwrite the canary.
+  findIter = std::find(list.begin(), list.end(), fnode);
+  if (findIter == list.end()) {
+    fuseFhMap.erase(fnode->fuseFh);
+    fnode->canary = CANARY_RELEASED;
+  }
+
+  if (list.empty()) {
     openFiles.erase(it);
   }
+}
+
+uint64_t EncFS_Context::nextFuseFh() {
+  // Thread-safe because currentFuseFh is std::atomic
+  return currentFuseFh++;
+}
+
+std::shared_ptr<FileNode> EncFS_Context::lookupFuseFh(uint64_t n) {
+  Lock lock(contextMutex);
+  auto it = fuseFhMap.find(n);
+  if (it == fuseFhMap.end()) {
+    return std::shared_ptr<FileNode>();
+  }
+  return it->second;
 }
 
 }  // namespace encfs

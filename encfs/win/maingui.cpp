@@ -32,6 +32,8 @@ UINT nwm_TaskBarCreated = ::RegisterWindowMessage(_T("TaskbarCreated"));
 
 #define TRAYICONID	1
 #define SWM_TRAYMSG	WM_APP+100
+#define TIMER_POLL_MOUNTS	1
+#define POLL_MOUNTS_MS	2000
 
 using namespace encfs;
 
@@ -163,6 +165,10 @@ extern "C" int main_gui(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */, LPST
 static BOOL 
 CreateTrayIcon(HWND hWnd)
 {
+  // Remove a previous icon if explorer restarted (TaskbarCreated).
+  if (niData.cbSize)
+    Shell_NotifyIcon(NIM_DELETE, &niData);
+
   ZeroMemory(&niData, sizeof(NOTIFYICONDATA));
 
   ULONGLONG ullVersion = GetDllVersion(_T("shell32.dll"));
@@ -175,13 +181,22 @@ CreateTrayIcon(HWND hWnd)
   niData.uID = TRAYICONID;
 
   // state which structure members are valid
-  niData.uFlags = NIF_ICON | NIF_MESSAGE;
+  niData.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
 
   HINSTANCE hInstance = (HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE);
 
-  // load the icon
-  niData.hIcon =
-    (HICON)LoadImage(hInstance, L"dialog-password.ico", IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
+  // Load from embedded resource (not a loose .ico next to cwd — that fails
+  // when dialog-password.ico is missing from the Release folder).
+  niData.hIcon = (HICON)LoadImage(
+      hInstance, MAKEINTRESOURCE(IDI_MAIN), IMAGE_ICON,
+      GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+      LR_DEFAULTCOLOR);
+  if (!niData.hIcon) {
+    niData.hIcon = (HICON)LoadImage(
+        hInstance, MAKEINTRESOURCE(IDI_MAIN), IMAGE_ICON, 0, 0, LR_DEFAULTCOLOR);
+  }
+
+  _tcscpy_s(niData.szTip, _T("EncFS"));
 
   // the window to send messages to and the message to send
   //              note:   the message value should be in the
@@ -191,11 +206,8 @@ CreateTrayIcon(HWND hWnd)
 
   Shell_NotifyIcon(NIM_ADD, &niData);
 
-  // free icon handle
-  if (niData.hIcon && DestroyIcon(niData.hIcon))
-    niData.hIcon = NULL;
-
-  // call ShowWindow here to make the dialog initially visible
+  // Keep hIcon until NIM_DELETE — destroying it early can leave a blank tray
+  // icon on some Windows versions.
   return TRUE;
 }
 
@@ -414,6 +426,9 @@ OnInitDialog(HWND hWnd, OptionsData& data)
 static void
 ShowContextMenu(HWND hWnd)
 {
+  // Refresh mount state before building the menu.
+  Drives::Poll(hWnd);
+
   POINT pt;
 
   GetCursorPos(&pt);
@@ -599,6 +614,11 @@ MainDlgProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     switch (message) {
     case WM_INITDIALOG:
       Drives::Load();
+      SetTimer(hWnd, TIMER_POLL_MOUNTS, POLL_MOUNTS_MS, NULL);
+      return TRUE;
+    case WM_TIMER:
+      if (wParam == TIMER_POLL_MOUNTS)
+        Drives::Poll(hWnd);
       return TRUE;
     case SWM_TRAYMSG:
       switch (lParam) {
@@ -648,8 +668,13 @@ MainDlgProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
       }
       return 1;
     case WM_DESTROY:
+      KillTimer(hWnd, TIMER_POLL_MOUNTS);
       niData.uFlags = 0;
       Shell_NotifyIcon(NIM_DELETE, &niData);
+      if (niData.hIcon) {
+        DestroyIcon(niData.hIcon);
+        niData.hIcon = NULL;
+      }
       PostQuitMessage(0);
       break;
     }

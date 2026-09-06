@@ -665,16 +665,23 @@ std::shared_ptr<FileNode> DirNode::renameNode(const char *from, const char *to,
 }
 std::shared_ptr<FileNode> DirNode::findOrCreate(const char *plainName) {
   std::shared_ptr<FileNode> node;
-  if (ctx) node = ctx->lookupNode(plainName);
-  if (!node) {
-    uint64_t iv = 0;
-    string cipherName = naming->encodePath(plainName, &iv);
-    node.reset(new FileNode(this, fsConfig, plainName,
-                            (rootDir + cipherName).c_str()));
 
-    if (fsConfig->config->externalIVChaining) node->setName(0, 0, iv);
+  // See if we already have a FileNode for this path.
+  if (ctx) {
+    node = ctx->lookupNode(plainName);
 
-    VLOG(1) << "created FileNode for " << node->cipherName();
+    // If we don't, create a new one.
+    if (!node) {
+      uint64_t iv = 0;
+      string cipherName = naming->encodePath(plainName, &iv);
+      uint64_t fuseFh = ctx->nextFuseFh();
+      node.reset(new FileNode(this, fsConfig, plainName,
+                              (rootDir + cipherName).c_str(), fuseFh));
+
+      if (fsConfig->config->externalIVChaining) node->setName(0, 0, iv);
+
+      VLOG(1) << "created FileNode for " << node->cipherName();
+    }
   }
 
   return node;

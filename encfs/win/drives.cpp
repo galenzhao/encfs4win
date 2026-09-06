@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <stdio.h>
+#include <tchar.h>
 #include <stdexcept>
 #include "drives.h"
 #include "guiutils.h"
@@ -17,7 +18,7 @@
 static HANDLE GetOldSubProject(DWORD pid);
 
 Drive::Drive(const std::string& _configName, const std::tstring& _dir, char drive, DWORD pid) :
-  configName(_configName), dir(_dir), mounted(false)
+  configName(_configName), dir(_dir), mounted(false), unmountRequested(false)
 {
   _stprintf(mnt, _T("%c:\\"), drive);
 
@@ -32,7 +33,36 @@ Drive::Drive(const std::string& _configName, const std::tstring& _dir, char driv
 
 void Drive::Show(HWND hwnd)
 {
-  ShellExecute(hwnd, _T("open"), mnt, NULL, NULL, SW_SHOWNORMAL);
+  // Dokan volumes are sometimes not ready for Explorer in the first moments
+  // after mount; retry a few times with an explicit explorer open.
+  TCHAR params[32];
+  _sntprintf(params, LENGTH(params), _T("/root,%c:\\"), mnt[0]);
+
+  for (int attempt = 0; attempt < 5; ++attempt) {
+    if (attempt > 0)
+      Sleep(300);
+
+    HINSTANCE r = ShellExecute(hwnd, NULL, _T("explorer.exe"), params, NULL,
+                               SW_SHOWNORMAL);
+    if ((INT_PTR)r > 32)
+      return;
+
+    r = ShellExecute(hwnd, _T("explore"), mnt, NULL, NULL, SW_SHOWNORMAL);
+    if ((INT_PTR)r > 32)
+      return;
+  }
+}
+
+static bool DriveLetterReady(const TCHAR *mnt)
+{
+  UINT t = GetDriveType(mnt);
+  if (t != DRIVE_NO_ROOT_DIR && t != DRIVE_UNKNOWN)
+    return true;
+
+  // GetDriveType can lag behind Dokan mount; also check the drive bitmask.
+  DWORD mask = GetLogicalDrives();
+  int idx = _totupper(mnt[0]) - _T('A');
+  return idx >= 0 && idx < 26 && (mask & (1u << idx)) != 0;
 }
 
 void Drive::Mount(HWND hwnd)
@@ -90,12 +120,22 @@ void Drive::Mount(HWND hwnd)
 
   mounted = false;
 
-  // wait for mount, read error and give feedback
-  for (unsigned n = 0; n < 5 * 10; ++n) {
-    // drive appeared
-    if (GetDriveType(mnt) != DRIVE_NO_ROOT_DIR) {
+  // wait for mount, read error and give feedback (up to ~15s)
+  bool appeared = false;
+  for (unsigned n = 0; n < 75; ++n) {
+    if (DriveLetterReady(mnt)) {
+      appeared = true;
+      // Brief settle time so Explorer/Dokan finish volume registration.
+      Sleep(400);
       if (Drives::autoShow)
         Show(hwnd);
+      else {
+        TCHAR msg[512];
+        _sntprintf(msg, LENGTH(msg),
+                   _T("Mounted successfully:\r\n%s\r\nDrive %c:"),
+                   dir.c_str(), mnt[0]);
+        MessageBox(hwnd, msg, _T("EncFS"), MB_ICONINFORMATION | MB_OK);
+      }
       break;
     }
 
@@ -124,8 +164,20 @@ void Drive::Mount(HWND hwnd)
     }
     }
   }
-  if (subProcess)
-    mounted = true;
+
+  if (!appeared || !subProcess) {
+    if (subProcess) {
+      TerminateProcess(subProcess->hProcess, 1);
+      WaitForSingleObject(subProcess->hProcess, 2000);
+      subProcess.reset();
+    }
+    _stprintf(cmd, _T("Mount timed out for drive %c: — drive letter did not appear."),
+              mnt[0]);
+    throw truntime_error(cmd);
+  }
+
+  mounted = true;
+  unmountRequested = false;
   Save(); // save for resume
 }
 
@@ -138,10 +190,10 @@ void Drive::Umount(HWND)
 {
   // check mounted
   CheckMounted();
-  //	if (GetDriveType(mnt) == DRIVE_NO_ROOT_DIR)
-  //		mounted = false;
   if (!mounted)
     throw truntime_error(_T("Cannot unmount a not mounted drive"));
+
+  unmountRequested = true;
 
   // unmount
   fuse_unmount(wchar_to_utf8_cstr(mnt).c_str(), NULL);
@@ -168,23 +220,35 @@ void Drive::Umount(HWND)
   CheckMounted();
 }
 
-void Drive::CheckMounted()
+bool Drive::CheckMounted(DWORD *exitCodeOut)
 {
+  if (exitCodeOut)
+    *exitCodeOut = 0;
+
   if (!mounted)
-    return;
+    return false;
 
   if (!subProcess) {
     mounted = false;
-    return;
+    return false;
   }
 
   switch (WaitForSingleObject(subProcess->hProcess, 0)) {
   case WAIT_OBJECT_0:
-  case WAIT_ABANDONED:
+  case WAIT_ABANDONED: {
+    DWORD exitCode = 0;
+    GetExitCodeProcess(subProcess->hProcess, &exitCode);
+    if (exitCodeOut)
+      *exitCodeOut = exitCode;
+    const bool unexpected = !unmountRequested;
     subProcess.reset();
     mounted = false;
+    unmountRequested = false;
     Save();
+    return unexpected;
   }
+  }
+  return false;
 }
 
 
@@ -309,11 +373,7 @@ void Drives::AddMenus(HMENU menu, bool mounted, unsigned count, LPCTSTR fmt, LPC
 
 void Drives::AddMenus(HMENU menu)
 {
-  // check all drives, delete closed processed and so on
-  for (drives_t::iterator i = drives.begin(); i != drives.end(); ++i)
-    (*i)->CheckMounted();
-
-  // counts
+  // counts (mount state is refreshed by Poll / explicit CheckMounted)
   unsigned numMounted = 0, numUnmounted = 0;
   for (drives_t::const_iterator i = drives.begin(); i != drives.end(); ++i) {
     if ((*i)->mounted)
@@ -325,6 +385,22 @@ void Drives::AddMenus(HMENU menu)
   AddMenus(menu, true, numMounted, _T("Open %s (%c)"), _T("Open"), IDM_TYPE_SHOW);
   AddMenus(menu, false, numUnmounted, _T("Mount %s (%c)"), _T("Mount"), IDM_TYPE_MOUNT);
   AddMenus(menu, true, numMounted, _T("Unmount %s (%c)"), _T("Unmount"), IDM_TYPE_UMOUNT);
+}
+
+void Drives::Poll(HWND hwnd)
+{
+  for (drives_t::iterator i = drives.begin(); i != drives.end(); ++i) {
+    DWORD exitCode = 0;
+    if (!(*i)->CheckMounted(&exitCode))
+      continue;
+
+    TCHAR buf[768];
+    _sntprintf(buf, LENGTH(buf),
+               _T("encfs exited unexpectedly for:\r\n%s (%c:)\r\n\r\nExit code: %u\r\n")
+               _T("This is usually a crash or forced termination, not a normal unmount."),
+               (*i)->Dir().c_str(), (*i)->DriveLetter(), (unsigned)exitCode);
+    MessageBox(hwnd, buf, _T("EncFS"), MB_ICONWARNING | MB_OK);
+  }
 }
 
 void Drives::Delete(drive_t drive)

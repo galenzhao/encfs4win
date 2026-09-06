@@ -34,12 +34,16 @@ public:
 	void Mount(HWND hwnd);
 	void Umount(HWND hwnd);
 	bool Mounted() const { return mounted; }
-	void CheckMounted();
+	// Returns true if encfs exited without a requested unmount.
+	bool CheckMounted(DWORD *exitCode = NULL);
+	const std::tstring& Dir() const { return dir; }
+	TCHAR DriveLetter() const { return mnt[0]; }
 private:
 	std::string configName;
 	std::tstring dir;
 	TCHAR mnt[4];
 	bool mounted;
+	bool unmountRequested;
 	std::shared_ptr<SubProcessInformations> subProcess;
 	Drive(const std::string& configName, const std::tstring& _dir, char drive, DWORD pid = 0);
 	void Save();
@@ -56,6 +60,8 @@ public:
 	static void Load();
 	static void AddMenus(HMENU menu);
 	static drive_t Add(const std::tstring& dir, char drive);
+	// Poll mounted drives; show a message box for unexpected encfs exits.
+	static void Poll(HWND hwnd);
 private:
 	static void NewDrive(const std::string& name, void* param);
 	static void AddMenus(HMENU menu, bool mounted, unsigned count, LPCTSTR fmt, LPCTSTR title, int type);

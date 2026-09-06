@@ -65,8 +65,6 @@ using namespace std::placeholders;
 
 namespace encfs {
 
-#define GET_FN(ctx, finfo) ctx->getNode((void *)(uintptr_t)finfo->fh)
-
 static EncFS_Context *context() {
   return (EncFS_Context *)fuse_get_context()->private_data;
 }
@@ -113,19 +111,42 @@ static int withCipherPath(const char *opName, const char *path,
 }
 
 // helper function -- apply a functor to a node
+static void checkCanary(const std::shared_ptr<FileNode> &fnode) {
+  if (fnode->canary == CANARY_OK) {
+    return;
+  }
+  if (fnode->canary == CANARY_RELEASED) {
+    // "fnode" may have been released after it was retrieved by
+    // lookupFuseFh. This is not an error. std::shared_ptr will release
+    // the memory only when all operations on the FileNode have been
+    // completed.
+    return;
+  }
+  if (fnode->canary == CANARY_DESTROYED) {
+    RLOG(ERROR)
+        << "canary=CANARY_DESTROYED. FileNode accessed after it was destroyed.";
+  } else {
+    RLOG(ERROR) << "canary=0x" << std::hex << fnode->canary
+                << ". Memory corruption?";
+  }
+  throw Error("dead canary");
+}
+
 static int withFileNode(const char *opName, const char *path,
                         struct fuse_file_info *fi,
                         function<int(FileNode *)> op) {
   EncFS_Context *ctx = context();
 
   int res = -EIO;
-  std::shared_ptr<DirNode> FSRoot = ctx->getRoot(&res);
+  bool skipUsageCount = (path != nullptr && strlen(path) == 1);
+  std::shared_ptr<DirNode> FSRoot = ctx->getRoot(&res, skipUsageCount);
   if (!FSRoot) return res;
 
   try {
 
-    auto do_op = [&FSRoot, opName, &op](FileNode *fnode) {
+    auto do_op = [&FSRoot, opName, &op](std::shared_ptr<FileNode> fnode) {
       rAssert(fnode != nullptr);
+      checkCanary(fnode);
       VLOG(1) << "op: " << opName << " : " << fnode->cipherName();
 
       // check that we're not recursing into the mount point itself
@@ -134,13 +155,28 @@ static int withFileNode(const char *opName, const char *path,
                 << fnode->cipherName() << "'";
         return -EIO;
       }
-      return op(fnode);
+      return op(fnode.get());
     };
 
-    if (fi != nullptr && fi->fh != 0)
-      res = do_op(reinterpret_cast<FileNode *>(fi->fh));
-    else
-      res = do_op(FSRoot->lookupNode(path, opName).get());
+    if (fi != nullptr && fi->fh != 0) {
+      auto node = ctx->lookupFuseFh(fi->fh);
+      if (node == nullptr) {
+#if defined(WIN32) || defined(__CYGWIN__)
+        // Windows may flush after rename when the node moved under a new path.
+        if (strcmp(opName, "flush") == 0) {
+          RLOG(WARNING)
+              << "Filenode to flush not found, file has certainly been renamed: "
+              << path;
+          return 0;
+        }
+#endif
+        auto msg = "fh=" + std::to_string(fi->fh) + " not found in fuseFhMap";
+        throw Error(msg.c_str());
+      }
+      res = do_op(node);
+    } else {
+      res = do_op(FSRoot->lookupNode(path, opName));
+    }
 
     if (res < 0) {
       RLOG(DEBUG) << "op: " << opName << " error: " << strerror(-res);
@@ -654,8 +690,8 @@ int encfs_open(const char *path, struct fuse_file_info *file) {
               << file->flags;
 
       if (res >= 0) {
-        file->fh =
-            reinterpret_cast<uintptr_t>(ctx->putNode(path, std::move(fnode)));
+        ctx->putNode(path, fnode);
+        file->fh = fnode->fuseFh;
         res = ESUCCESS;
       }
     }
@@ -710,7 +746,18 @@ int encfs_release(const char *path, struct fuse_file_info *finfo) {
   EncFS_Context *ctx = context();
 
   try {
-    ctx->eraseNode(path, reinterpret_cast<FileNode *>(finfo->fh));
+    auto fnode = ctx->lookupFuseFh(finfo->fh);
+    if (!fnode) {
+#if defined(WIN32) || defined(__CYGWIN__)
+      RLOG(WARNING)
+          << "Filenode to release not found, file has certainly been renamed: "
+          << path;
+      return ESUCCESS;
+#else
+      return -EBADF;
+#endif
+    }
+    ctx->eraseNode(path, fnode);
     return ESUCCESS;
   } catch (encfs::Error &err) {
     RLOG(ERROR) << "error caught in release: " << err.what();

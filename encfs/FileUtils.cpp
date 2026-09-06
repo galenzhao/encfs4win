@@ -1685,4 +1685,16 @@ int remountFS(EncFS_Context *ctx) {
   }
 }
 
+bool unmountFS(EncFS_Context *ctx) {
+  if (ctx->opts->mountOnDemand) {
+    VLOG(1) << "Detaching filesystem: " << ctx->opts->mountPoint;
+    ctx->setRoot(std::shared_ptr<DirNode>());
+    return false;
+  }
+
+  RLOG(WARNING) << "Unmounting filesystem: " << ctx->opts->mountPoint;
+  fuse_unmount(ctx->opts->mountPoint.c_str(), NULL);
+  return true;
+}
+
 }  // namespace encfs

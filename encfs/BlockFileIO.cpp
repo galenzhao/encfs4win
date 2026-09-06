@@ -96,13 +96,23 @@ ssize_t BlockFileIO::cacheReadOneBlock(const IORequest &req) const {
 }
 
 bool BlockFileIO::cacheWriteOneBlock(const IORequest &req) {
-  // cache results of write (before pass-thru, because it may be modified
-  // in-place)
+  // Point request buffer to our own buffer: encryption may modify data
+  // in-place, and the originating process must not see its buffer changed
+  // (upstream v1.9.5 fix for write crash).
   memcpy(_cache.data, req.data, req.dataLen);
-  _cache.offset = req.offset;
-  _cache.dataLen = req.dataLen;
-  bool ok = writeOneBlock(req);
-  if (!ok) clearCache(_cache, _blockSize);
+  IORequest tmp;
+  tmp.offset = req.offset;
+  tmp.data = _cache.data;
+  tmp.dataLen = req.dataLen;
+  bool ok = writeOneBlock(tmp);
+  if (!ok) {
+    clearCache(_cache, _blockSize);
+  } else {
+    // Cache the (still plaintext) write buffer from the original request
+    memcpy(_cache.data, req.data, req.dataLen);
+    _cache.offset = req.offset;
+    _cache.dataLen = req.dataLen;
+  }
   return ok;
 }
 
