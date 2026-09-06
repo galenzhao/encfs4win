@@ -82,7 +82,9 @@ echo ==================================================
 echo             BUILDING TINYXML2 LIBRARIES             
 echo ==================================================
 
-msbuild tinyxml2/tinyxml2.sln /p:WindowsTargetPlatformVersion=10.0.18362.0 /p:PlatformToolset=v140 /p:Configuration=Release-Lib /p:Platform=Win32 /t:Clean,Build
+if not defined ENCFS_PLATFORM_TOOLSET set ENCFS_PLATFORM_TOOLSET=v143
+if not defined ENCFS_WINSDK_VERSION set ENCFS_WINSDK_VERSION=10.0
+msbuild tinyxml2/tinyxml2.sln /p:WindowsTargetPlatformVersion=%ENCFS_WINSDK_VERSION% /p:PlatformToolset=%ENCFS_PLATFORM_TOOLSET% /p:Configuration=Release-Lib /p:Platform=Win32 /t:Clean,Build
 
 REM verify necessary libraries were successfully built 
 if NOT exist "%INSTALL_DIR%\tinyxml2\bin\Win32-Release-Lib\tinyxml2.lib" goto :build_failure

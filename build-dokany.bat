@@ -1,6 +1,5 @@
 @ECHO OFF
-SETLOCAL
-Setlocal EnableDelayedExpansion
+SETLOCAL EnableDelayedExpansion
 REM build-dokany.bat
 REM *****************************************************************************
 REM Author:   Charles Munson <jetwhiz@jetwhiz.com>
@@ -92,10 +91,12 @@ echo.
 echo ==================================================
 echo              BUILDING DOKANY LIBRARIES             
 echo ==================================================
+if not defined ENCFS_PLATFORM_TOOLSET set ENCFS_PLATFORM_TOOLSET=v143
+if not defined ENCFS_WINSDK_VERSION set ENCFS_WINSDK_VERSION=10.0
 if defined USE_LEGACY_DOKAN (
-  msbuild dokan.sln /p:WindowsTargetPlatformVersion=10.0.18362.0 /p:PlatformToolset=v140  /p:ForceImportBeforeCppTargets="%DEPS_DIR%\dokan-legacy.props" /p:Configuration=Release /p:Platform=Win32 /t:Clean,Build
+  msbuild dokan.sln /p:WindowsTargetPlatformVersion=%ENCFS_WINSDK_VERSION% /p:PlatformToolset=%ENCFS_PLATFORM_TOOLSET% /p:ForceImportBeforeCppTargets="%DEPS_DIR%\dokan-legacy.props" /p:Configuration=Release /p:Platform=Win32 /t:Clean,Build
 ) else (
-  msbuild dokan.sln /p:WindowsTargetPlatformVersion=10.0.18362.0 /p:PlatformToolset=v140 /p:Configuration=Release /p:Platform=Win32 /t:Clean,Build
+  msbuild dokan.sln /p:WindowsTargetPlatformVersion=%ENCFS_WINSDK_VERSION% /p:PlatformToolset=%ENCFS_PLATFORM_TOOLSET% /p:Configuration=Release /p:Platform=Win32 /t:Clean,Build
 )
 
 REM verify necessary libraries were successfully built 
@@ -111,9 +112,11 @@ if defined USE_LEGACY_DOKAN (
   if NOT exist ".\Win32\Release\dokanfuse1.dll" goto :build_failure
 )
 
-REM set DOKAN_ROOT environment variable 
-endlocal & set DOKAN_ROOT=%CD%
-setx DOKAN_ROOT "%DOKAN_ROOT%"
+REM set DOKAN_ROOT environment variable for the caller
+for %%I in ("%CD%") do (
+    endlocal & set "DOKAN_ROOT=%%~fI"
+)
+setx DOKAN_ROOT "%DOKAN_ROOT%" >nul
 
 goto :build_success
 

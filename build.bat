@@ -61,15 +61,84 @@ if "%ENCFS_MAJOR_VERSION%"=="2" (
 )
 
 
-REM Make sure MSBUILD is available (and set up environmemt) 
+REM Make sure MSBUILD is available (and set up environment for modern MSVC)
 set DEPS_DIR=%CD%\deps
-set VCPath=%PROGRAMFILES(x86)%\MSBuild\14.0\Bin
-set PATH=%PATH%;%VCPath%
-set VCTargetsPath=%PROGRAMFILES(x86)%\MSBuild\Microsoft.Cpp\v4.0\V140
-if NOT exist "%VCPath%\msbuild.exe" goto :no_msbuild
-if NOT exist "%PROGRAMFILES(x86)%\Microsoft Visual Studio 14.0\VC\bin\vcvars32.bat" goto :no_msbuild
-if not defined DevEnvDir (
-    call "%PROGRAMFILES(x86)%\Microsoft Visual Studio 14.0\VC\bin\vcvars32.bat"
+set "VSWHERE=%PROGRAMFILES(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+if NOT exist "%VSWHERE%" goto :no_msbuild
+
+REM Prefer complete VS IDE installs, then Build Tools; always pick an install that has the C++ toolset
+set "VSINSTALLDIR="
+for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products Microsoft.VisualStudio.Product.Community,Microsoft.VisualStudio.Product.Professional,Microsoft.VisualStudio.Product.Enterprise -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
+if not defined VSINSTALLDIR (
+    for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%i"
+)
+if not defined VSINSTALLDIR goto :no_msbuild
+if NOT exist "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvars32.bat" goto :no_msbuild
+if NOT exist "%VSINSTALLDIR%\MSBuild\Current\Bin\MSBuild.exe" goto :no_msbuild
+
+set "PATH=%VSINSTALLDIR%\MSBuild\Current\Bin;%PATH%"
+
+REM Match PlatformToolset to the selected Visual Studio generation
+if not defined ENCFS_PLATFORM_TOOLSET (
+    echo.%VSINSTALLDIR%| findstr /I "\\18\\" >nul
+    if not errorlevel 1 set ENCFS_PLATFORM_TOOLSET=v145
+)
+if not defined ENCFS_PLATFORM_TOOLSET (
+    echo.%VSINSTALLDIR%| findstr /I "\\2022\\" >nul
+    if not errorlevel 1 set ENCFS_PLATFORM_TOOLSET=v143
+)
+if not defined ENCFS_PLATFORM_TOOLSET set ENCFS_PLATFORM_TOOLSET=v143
+if not defined ENCFS_WINSDK_VERSION set ENCFS_WINSDK_VERSION=10.0
+
+echo.
+echo Using Visual Studio at: %VSINSTALLDIR%
+echo PlatformToolset=%ENCFS_PLATFORM_TOOLSET%  WindowsTargetPlatformVersion=%ENCFS_WINSDK_VERSION%
+echo.
+
+REM Initialize MSVC build environment (cl / nmake / INCLUDE / LIB).
+REM VsDevCmd is preferred, but can fail under non-interactive/redirected hosts,
+REM so we always ensure a usable MSVC + Windows SDK environment afterwards.
+set "VSCMD_SKIP_SENDTELEMETRY=1"
+call "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvars32.bat" >"%TEMP%\encfs-vcvars.log" 2>&1
+
+REM Locate the newest installed MSVC toolset under this VS install
+set "MSVC_ROOT="
+for /f "usebackq delims=" %%i in (`dir /b /ad /o-n "%VSINSTALLDIR%\VC\Tools\MSVC"`) do (
+    if not defined MSVC_ROOT if exist "%VSINSTALLDIR%\VC\Tools\MSVC\%%i\bin\Hostx86\x86\cl.exe" set "MSVC_ROOT=%VSINSTALLDIR%\VC\Tools\MSVC\%%i"
+)
+if not defined MSVC_ROOT goto :no_msbuild
+
+REM Locate a Windows 10/11 SDK with headers+libs
+set "WINSDK_ROOT=%ProgramFiles(x86)%\Windows Kits\10"
+set "WINSDK_VER="
+for /f "usebackq delims=" %%i in (`dir /b /ad /o-n "%WINSDK_ROOT%\Include"`) do (
+    if not defined WINSDK_VER if exist "%WINSDK_ROOT%\Include\%%i\um\windows.h" if exist "%WINSDK_ROOT%\Lib\%%i\um\x86\kernel32.lib" set "WINSDK_VER=%%i"
+)
+if not defined WINSDK_VER goto :no_msbuild
+
+set "PATH=%MSVC_ROOT%\bin\Hostx86\x86;%VSINSTALLDIR%\MSBuild\Current\Bin;%PATH%"
+set "INCLUDE=%MSVC_ROOT%\include;%MSVC_ROOT%\atlmfc\include;%WINSDK_ROOT%\Include\%WINSDK_VER%\ucrt;%WINSDK_ROOT%\Include\%WINSDK_VER%\shared;%WINSDK_ROOT%\Include\%WINSDK_VER%\um;%WINSDK_ROOT%\Include\%WINSDK_VER%\winrt;%WINSDK_ROOT%\Include\%WINSDK_VER%\cppwinrt"
+set "LIB=%MSVC_ROOT%\lib\x86;%MSVC_ROOT%\atlmfc\lib\x86;%WINSDK_ROOT%\Lib\%WINSDK_VER%\ucrt\x86;%WINSDK_ROOT%\Lib\%WINSDK_VER%\um\x86"
+set "LIBPATH=%MSVC_ROOT%\lib\x86;%MSVC_ROOT%\atlmfc\lib\x86"
+
+echo MSVC_ROOT=%MSVC_ROOT%
+echo WINSDK_VER=%WINSDK_VER%
+echo.
+
+where nmake >nul 2>&1
+if ERRORLEVEL 1 goto :no_msbuild
+where cl >nul 2>&1
+if ERRORLEVEL 1 goto :no_msbuild
+where msbuild >nul 2>&1
+if ERRORLEVEL 1 goto :no_msbuild
+if not exist "%MSVC_ROOT%\include\excpt.h" goto :no_msbuild
+
+REM Reuse previously built dependencies when present
+if not defined OPENSSL_ROOT (
+    if exist "%PROJECT_DIR%\deps\openssl\install-dir\include\openssl\ssl.h" set "OPENSSL_ROOT=%PROJECT_DIR%\deps\openssl\install-dir"
+)
+if not defined DOKAN_ROOT (
+    if exist "%PROJECT_DIR%\deps\dokan\Win32\Release\dokan1.lib" if exist "%PROJECT_DIR%\deps\dokan\dokan_fuse\include\fuse.h" set "DOKAN_ROOT=%PROJECT_DIR%\deps\dokan"
 )
 
 
@@ -77,6 +146,8 @@ if not defined DevEnvDir (
 REM openssl
 call build-openssl.bat
 if NOT %ERRORLEVEL% == 0 goto :no_openssl
+if not defined OPENSSL_ROOT set "OPENSSL_ROOT=%PROJECT_DIR%\deps\openssl\install-dir"
+if NOT exist "%OPENSSL_ROOT%\include\openssl\ssl.h" set "OPENSSL_ROOT=%PROJECT_DIR%\deps\openssl\install-dir"
 
 
 REM libgpg-error
@@ -106,14 +177,20 @@ if NOT %ERRORLEVEL% == 0 goto :no_easyloggingpp
 REM dokany
 call build-dokany.bat
 if NOT %ERRORLEVEL% == 0 goto :no_dokany
+if not defined DOKAN_ROOT set "DOKAN_ROOT=%PROJECT_DIR%\deps\dokan"
+if NOT exist "%DOKAN_ROOT%\dokan_fuse\include\fuse.h" set "DOKAN_ROOT=%PROJECT_DIR%\deps\dokan"
 
+echo.
+echo OPENSSL_ROOT=%OPENSSL_ROOT%
+echo DOKAN_ROOT=%DOKAN_ROOT%
+echo.
 
 REM (Clean,)? Build encfs 
 echo.
 echo ==================================================
 echo                   BUILDING ENCFS             
 echo ==================================================
-msbuild encfs/encfs.sln /p:Configuration=Release /p:Platform=x86 /t:Clean,Build
+msbuild encfs/encfs.sln /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=%ENCFS_PLATFORM_TOOLSET% /p:WindowsTargetPlatformVersion=%ENCFS_WINSDK_VERSION% /t:Clean,Build
 
 REM verify necessary executables were successfully installed  
 if NOT exist ".\encfs\Release\encfs.exe" goto :build_failure
@@ -152,7 +229,7 @@ goto :end
 
 echo.
 echo ==================================================
-echo   MSBuild V140 is required to build this project!
+echo   A recent Visual Studio with MSVC C++ tools (VS 2022+) is required!
 echo ==================================================
 echo.
 exit /b 1

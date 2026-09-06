@@ -1,6 +1,5 @@
 @ECHO OFF
-SETLOCAL
-Setlocal EnableDelayedExpansion
+SETLOCAL EnableDelayedExpansion
 REM build-openssl.bat
 REM *****************************************************************************
 REM Author:   Charles Munson <jetwhiz@jetwhiz.com>
@@ -87,11 +86,11 @@ if NOT exist ".\%INSTALL_DIR%\bin\libeay32.dll" goto :build_failure
 if NOT exist ".\%INSTALL_DIR%\bin\ssleay32.dll" goto :build_failure
 if NOT exist ".\%INSTALL_DIR%\include" goto :build_failure
 
-REM set OPENSSL_ROOT environment variable 
-pushd %INSTALL_DIR%
-endlocal & set OPENSSL_ROOT=%CD%
-setx OPENSSL_ROOT "%OPENSSL_ROOT%"
-popd
+REM set OPENSSL_ROOT environment variable for the caller
+for %%I in ("%CD%\%INSTALL_DIR%") do (
+    endlocal & set "OPENSSL_ROOT=%%~fI"
+)
+setx OPENSSL_ROOT "%OPENSSL_ROOT%" >nul
 
 goto :build_success
 
