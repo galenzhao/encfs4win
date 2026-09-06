@@ -631,6 +631,8 @@ int
 unix::stat(const char *path, struct stat_st *buffer)
 {
   //VLOG(1) << "NOTIFY -- unix::stat";
+  memset(buffer, 0, sizeof(*buffer));
+
   std::wstring fn = utf8_to_wfn(path).c_str();
   if (fn.length() && fn[fn.length() - 1] == L'\\')
     fn.resize(fn.length() - 1);
@@ -639,43 +641,61 @@ unix::stat(const char *path, struct stat_st *buffer)
     return -1;
   }
 
-  // We need an active file handle in order to get the file index ID 
-  HANDLE hff = CreateFileW(fn.c_str(), GENERIC_READ,
+  DWORD attrs = 0;
+  uint64_t size = 0;
+  uint64_t ino = 0;
+  FILETIME ftLastAccessTime = {};
+  FILETIME ftLastWriteTime = {};
+  FILETIME ftCreationTime = {};
+  bool gotInfo = false;
+
+  // Prefer an open handle so we can use GetFileSizeEx (single source of truth).
+  HANDLE hFile = CreateFileW(fn.c_str(), GENERIC_READ,
     FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
     NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
 
-  BY_HANDLE_FILE_INFORMATION hfi;
-  WIN32_FIND_DATAW wfd;
+  if (hFile != INVALID_HANDLE_VALUE) {
+    BY_HANDLE_FILE_INFORMATION hfi;
+    ZeroMemory(&hfi, sizeof(hfi));
+    if (GetFileInformationByHandle(hFile, &hfi)) {
+      attrs = hfi.dwFileAttributes;
+      ino = (static_cast<uint64_t>(hfi.nFileIndexHigh) << 32) |
+            static_cast<uint64_t>(hfi.nFileIndexLow);
+      ftLastAccessTime = hfi.ftLastAccessTime;
+      ftLastWriteTime = hfi.ftLastWriteTime;
+      ftCreationTime = hfi.ftCreationTime;
 
-  // Not sure about the default values after init, so in doubt...
-  hfi.dwFileAttributes = 0;
-  wfd.dwFileAttributes = 0;
-  hfi.nFileIndexHigh = 0;
-  hfi.nFileIndexLow = 0;
-  hfi.nFileSizeHigh = 0;
-  wfd.nFileSizeHigh = 0;
-  hfi.nFileSizeLow = 0;
-  wfd.nFileSizeLow = 0;
-  FILETIME *ftLastAccessTime = &hfi.ftLastAccessTime;
-  FILETIME *ftLastWriteTime = &hfi.ftLastWriteTime;
-  FILETIME *ftCreationTime = &hfi.ftCreationTime;
-
-  if (hff != INVALID_HANDLE_VALUE && GetFileInformationByHandle(hff, &hfi)) {
-    CloseHandle(hff);
-  }
-  else {
-    ftLastAccessTime = &wfd.ftLastAccessTime;
-    ftLastWriteTime = &wfd.ftLastWriteTime;
-    ftCreationTime = &wfd.ftCreationTime;
-    // https://bugs.ruby-lang.org/issues/6845
-    hff = FindFirstFileW(fn.c_str(), &wfd);
-    if (hff != INVALID_HANDLE_VALUE) {
-      FindClose(hff);
+      LARGE_INTEGER li;
+      if (!(attrs & FILE_ATTRIBUTE_DIRECTORY) && GetFileSizeEx(hFile, &li)) {
+        size = static_cast<uint64_t>(li.QuadPart);
+      } else {
+        size = (static_cast<uint64_t>(hfi.nFileSizeHigh) << 32) |
+               static_cast<uint64_t>(hfi.nFileSizeLow);
+      }
+      gotInfo = true;
     }
-    else {
+    CloseHandle(hFile);
+  }
+
+  if (!gotInfo) {
+    // Fallback when CreateFile fails (e.g. sharing) — use FindFirstFile only.
+    // https://bugs.ruby-lang.org/issues/6845
+    WIN32_FIND_DATAW wfd;
+    ZeroMemory(&wfd, sizeof(wfd));
+    HANDLE hFind = FindFirstFileW(fn.c_str(), &wfd);
+    if (hFind == INVALID_HANDLE_VALUE) {
       errno = ERRNO_FROM_WIN32(GetLastError());
       return -1;
     }
+    FindClose(hFind);
+
+    attrs = wfd.dwFileAttributes;
+    size = (static_cast<uint64_t>(wfd.nFileSizeHigh) << 32) |
+           static_cast<uint64_t>(wfd.nFileSizeLow);
+    ftLastAccessTime = wfd.ftLastAccessTime;
+    ftLastWriteTime = wfd.ftLastWriteTime;
+    ftCreationTime = wfd.ftCreationTime;
+    ino = 0;
   }
 
   int drive;
@@ -684,35 +704,30 @@ unix::stat(const char *path, struct stat_st *buffer)
   else
     drive = _getdrive() - 1;
 
-
   unsigned mode;
-  if ((hfi.dwFileAttributes + wfd.dwFileAttributes) & FILE_ATTRIBUTE_DIRECTORY)
+  if (attrs & FILE_ATTRIBUTE_DIRECTORY)
     mode = _S_IFDIR | 0777;
   else
     mode = _S_IFREG | 0666;
-  // Set attributes of file/directory
-  if ((hfi.dwFileAttributes + wfd.dwFileAttributes) & FILE_ATTRIBUTE_READONLY)
+  if (attrs & FILE_ATTRIBUTE_READONLY)
     mode &= ~0222;
-  // The following solution is not complete, Cygwin does not correctly detect such items as links...
-  // if ((hfi.dwFileAttributes + wfd.dwFileAttributes) & FILE_ATTRIBUTE_REPARSE_POINT)
-  //   mode |= S_IFLNK;
 
   buffer->st_dev = buffer->st_rdev = drive;
-  buffer->st_ino = (hfi.nFileIndexHigh + 0) * (((uint64_t)1) << 32) + (hfi.nFileIndexLow + 0);
+  buffer->st_ino = ino;
   buffer->st_mode = mode;
   buffer->st_nlink = 1;
   buffer->st_uid = 0;
   buffer->st_gid = 0;
-  buffer->st_size = (hfi.nFileSizeHigh + wfd.nFileSizeHigh) * (((uint64_t)1) << 32) + (hfi.nFileSizeLow + wfd.nFileSizeLow);
+  buffer->st_size = static_cast<FUSE_OFF_T>(size);
 
 #ifdef USE_LEGACY_DOKAN
-  buffer->st_atime = filetimeToUnixTime(ftLastAccessTime);
-  buffer->st_mtime = filetimeToUnixTime(ftLastWriteTime);
-  buffer->st_ctime = filetimeToUnixTime(ftCreationTime);
+  buffer->st_atime = filetimeToUnixTime(&ftLastAccessTime);
+  buffer->st_mtime = filetimeToUnixTime(&ftLastWriteTime);
+  buffer->st_ctime = filetimeToUnixTime(&ftCreationTime);
 #else
-  buffer->st_atim.tv_sec = filetimeToUnixTime(ftLastAccessTime);
-  buffer->st_mtim.tv_sec = filetimeToUnixTime(ftLastWriteTime);
-  buffer->st_ctim.tv_sec = filetimeToUnixTime(ftCreationTime);
+  buffer->st_atim.tv_sec = filetimeToUnixTime(&ftLastAccessTime);
+  buffer->st_mtim.tv_sec = filetimeToUnixTime(&ftLastWriteTime);
+  buffer->st_ctim.tv_sec = filetimeToUnixTime(&ftCreationTime);
 #endif
 
   return 0;

@@ -254,6 +254,7 @@ int encfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
       std::string name = dt.nextPlaintextName(&fileType, &inode);
       while (!name.empty()) {
         struct stat_st st;
+        memset(&st, 0, sizeof(st));
         st.st_ino = inode;
         st.st_mode = fileType << 12;
 
