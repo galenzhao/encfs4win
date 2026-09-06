@@ -61,14 +61,14 @@
       <PrecompiledHeader />
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
-      <AdditionalIncludeDirectories>.\;win\;..\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\dokan_fuse\include;$(DOKAN_ROOT)\sys;..\deps\tinyxml2;..\deps\easyloggingpp\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\;win\;..\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\include;$(DOKAN_ROOT)\include\fuse;$(DOKAN_ROOT)\include\dokan;$(DOKAN_ROOT)\dokan_fuse\include;$(DOKAN_ROOT)\dokan;..\deps\tinyxml2;..\deps\easyloggingpp\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalUsingDirectories>%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <TargetMachine>MachineX86</TargetMachine>
-      <AdditionalDependencies>$(DOKAN_ROOT)\Win32\Debug\dokan1.lib;$(DOKAN_ROOT)\Win32\Debug\dokanfuse1.lib;$(DOKAN_ROOT)\dokan_fuse\Win32\Debug\*.obj;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;..\deps\tinyxml2\tinyxml2\bin\Win32-Debug-Lib\tinyxml2.lib;Debug\encfs\*.obj;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(DOKAN_LIB_DIR)\dokan2.lib;$(DOKAN_LIB_DIR)\dokanfuse2.lib;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;..\deps\tinyxml2\tinyxml2\bin\Win32-Debug-Lib\tinyxml2.lib;Debug\encfs\*.obj;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -81,7 +81,7 @@
       <PrecompiledHeader />
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalIncludeDirectories>.\;win\;..\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\dokan_fuse\include;$(DOKAN_ROOT)\sys;..\deps\tinyxml2;..\deps\easyloggingpp\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\;win\;..\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\include;$(DOKAN_ROOT)\include\fuse;$(DOKAN_ROOT)\include\dokan;$(DOKAN_ROOT)\dokan_fuse\include;$(DOKAN_ROOT)\dokan;..\deps\tinyxml2;..\deps\easyloggingpp\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalUsingDirectories>%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
     </ClCompile>
     <Link>
@@ -90,7 +90,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <TargetMachine>MachineX86</TargetMachine>
-      <AdditionalDependencies>$(DOKAN_ROOT)\Win32\Release\dokan1.lib;$(DOKAN_ROOT)\Win32\Release\dokanfuse1.lib;$(DOKAN_ROOT)\dokan_fuse\Win32\Release\*.obj;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;..\deps\tinyxml2\tinyxml2\bin\Win32-Release-Lib\tinyxml2.lib;Release\encfs\*.obj;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(DOKAN_LIB_DIR)\dokan2.lib;$(DOKAN_LIB_DIR)\dokanfuse2.lib;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;..\deps\tinyxml2\tinyxml2\bin\Win32-Release-Lib\tinyxml2.lib;Release\encfs\*.obj;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

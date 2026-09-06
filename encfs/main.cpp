@@ -572,10 +572,12 @@ int main(int argc, char *argv[]) {
 #ifdef USE_LEGACY_DOKAN
   hinstLib = LoadLibrary(TEXT("dokan.dll"));
 #else
-  hinstLib = LoadLibrary(TEXT("dokan1.dll"));
+  hinstLib = LoadLibrary(TEXT("dokan2.dll"));
+  if (hinstLib == NULL)
+    hinstLib = LoadLibrary(TEXT("dokan1.dll"));
 #endif
   if (hinstLib == NULL) {
-    RLOG(ERROR) << "ERROR: Unable to load Dokan FUSE library";
+    RLOG(ERROR) << "ERROR: Unable to load Dokan library (dokan2.dll / dokan1.dll)";
     return EXIT_FAILURE;
   }
   FreeLibrary(hinstLib);

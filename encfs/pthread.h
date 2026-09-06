@@ -7,8 +7,7 @@
 #include <ntstatus.h>
 
 #include "encfs.h"
-#include "fuse_win.h"
-#include "fusemain.h"
+#include <dokan/dokan.h>
 #include <stdio.h>
 #include <io.h>
 #include "dirent.h"
@@ -17,7 +16,8 @@
 #include <string>
 
 
-// backwards compatability between dokan 0.7 and more modern versions 
+// Dokan 0.7.x used DOKAN_VERSION values like 600/740.
+// Dokan 1.x/2.x use smaller version numbers (e.g. 131, 231).
 #if DOKAN_VERSION > 700
 #define USE_LEGACY_DOKAN
 #define stat_st _stati64

@@ -80,13 +80,13 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_WINDOWS;_USRDLL;ENCFS_EXPORTS;RLOG_COMPONENT=rlog-ctl;_CRT_SECURE_NO_WARNINGS;DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\dokan_fuse\include;$(DOKAN_ROOT)\sys;..\deps\tinyxml2;..\deps\easyloggingpp\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\include;$(DOKAN_ROOT)\include\fuse;$(DOKAN_ROOT)\include\dokan;$(DOKAN_ROOT)\dokan_fuse\include;$(DOKAN_ROOT)\dokan;..\deps\tinyxml2;..\deps\easyloggingpp\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalUsingDirectories>%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(DOKAN_ROOT)\Win32\Debug\dokan1.lib;$(DOKAN_ROOT)\Win32\Debug\dokanfuse1.lib;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;..\deps\tinyxml2\tinyxml2\bin\Win32-Debug-Lib\tinyxml2.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(DOKAN_LIB_DIR)\dokan2.lib;$(DOKAN_LIB_DIR)\dokanfuse2.lib;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;..\deps\tinyxml2\tinyxml2\bin\Win32-Debug-Lib\tinyxml2.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -95,12 +95,12 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_WINDOWS;_USRDLL;ENCFS_EXPORTS;_CRT_SECURE_NO_WARNINGS;DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\;$(BOOST_ROOT)\includes\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\dokan_fuse\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\;$(BOOST_ROOT)\includes\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\include;$(DOKAN_ROOT)\include\fuse;$(DOKAN_ROOT)\include\dokan;$(DOKAN_ROOT)\dokan_fuse\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalUsingDirectories>$(BOOST_ROOT)\includes\;%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(DOKAN_ROOT)\Win32\Release\dokan1.lib;$(DOKAN_ROOT)\Win32\Release\dokanfuse1.lib;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_filesystem-vc140-mt-1_60.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_system-vc140-mt-1_60.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_serialization-vc140-mt-1_60.lib;..\rlog\Release\*.obj;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(DOKAN_LIB_DIR)\dokan2.lib;$(DOKAN_LIB_DIR)\dokanfuse2.lib;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_filesystem-vc140-mt-1_60.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_system-vc140-mt-1_60.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_serialization-vc140-mt-1_60.lib;..\rlog\Release\*.obj;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -110,7 +110,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\dokan_fuse\include;$(DOKAN_ROOT)\sys;..\deps\tinyxml2;..\deps\easyloggingpp\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\include;$(DOKAN_ROOT)\include\fuse;$(DOKAN_ROOT)\include\dokan;$(DOKAN_ROOT)\dokan_fuse\include;$(DOKAN_ROOT)\dokan;..\deps\tinyxml2;..\deps\easyloggingpp\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalUsingDirectories>%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
       <PreprocessorDefinitions>WIN32;_WINDOWS;_USRDLL;ENCFS_EXPORTS;RLOG_COMPONENT=rlog-ctl;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
@@ -119,7 +119,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(DOKAN_ROOT)\Win32\Release\dokan1.lib;$(DOKAN_ROOT)\Win32\Release\dokanfuse1.lib;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;..\deps\tinyxml2\tinyxml2\bin\Win32-Release-Lib\tinyxml2.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(DOKAN_LIB_DIR)\dokan2.lib;$(DOKAN_LIB_DIR)\dokanfuse2.lib;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;..\deps\tinyxml2\tinyxml2\bin\Win32-Release-Lib\tinyxml2.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -129,7 +129,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\;$(BOOST_ROOT)\includes\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\dokan_fuse\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\;$(BOOST_ROOT)\includes\;$(OPENSSL_ROOT)\include;$(DOKAN_ROOT)\include;$(DOKAN_ROOT)\include\fuse;$(DOKAN_ROOT)\include\dokan;$(DOKAN_ROOT)\dokan_fuse\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalUsingDirectories>$(BOOST_ROOT)\includes\;%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
       <PreprocessorDefinitions>WIN32;_WINDOWS;_USRDLL;ENCFS_EXPORTS;RLOG_COMPONENT=rlog;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
     </ClCompile>
@@ -138,7 +138,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(DOKAN_ROOT)\Win32\Release\dokan1.lib;$(DOKAN_ROOT)\Win32\Release\dokanfuse1.lib;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_filesystem-vc140-mt-1_60.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_system-vc140-mt-1_60.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_serialization-vc140-mt-1_60.lib;..\rlog\Release\*.obj;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(DOKAN_LIB_DIR)\dokan2.lib;$(DOKAN_LIB_DIR)\dokanfuse2.lib;$(OPENSSL_ROOT)\lib\libeay32.lib;$(OPENSSL_ROOT)\lib\ssleay32.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_filesystem-vc140-mt-1_60.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_system-vc140-mt-1_60.lib;$(BOOST_ROOT)\lib32-msvc-14.0\libboost_serialization-vc140-mt-1_60.lib;..\rlog\Release\*.obj;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

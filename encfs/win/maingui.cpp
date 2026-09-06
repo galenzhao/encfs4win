@@ -16,6 +16,7 @@
 #include "FileUtils.h"
 #include "Cipher.h"
 #include "BlockNameIO.h"
+#include <utils.h>
 
 // TODO preferences ??
 
@@ -33,6 +34,8 @@ UINT nwm_TaskBarCreated = ::RegisterWindowMessage(_T("TaskbarCreated"));
 #define SWM_TRAYMSG	WM_APP+100
 
 using namespace encfs;
+
+HINSTANCE hFuseDllInstance = NULL;
 
 static void SetPath()
 {
@@ -52,11 +55,12 @@ static bool CheckDokan()
 {
   bool res = true;
 
-  HMODULE dll = LoadLibraryA("dokan.dll");
-  if (!dll) {
+  HMODULE dll = LoadLibraryA("dokan2.dll");
+  if (!dll)
     dll = LoadLibraryA("dokan1.dll");
-    if (!dll) return false;
-  }
+  if (!dll)
+    dll = LoadLibraryA("dokan.dll");
+  if (!dll) return false;
 
   // check version
   typedef ULONG(__stdcall *DokanVersionType)();
@@ -64,7 +68,8 @@ static bool CheckDokan()
   ResolvedDokanVersion = (DokanVersionType)GetProcAddress(dll, "DokanVersion");
   if (!ResolvedDokanVersion)
     res = false;
-  dokanVersion = ResolvedDokanVersion();
+  else
+    dokanVersion = ResolvedDokanVersion();
 
   if (!GetProcAddress(dll, "DokanMain") || !GetProcAddress(dll, "DokanUnmount"))
     res = false;
@@ -106,16 +111,17 @@ bool CheckAutoStart()
   return res;
 }
 
-extern "C" int main_gui(HINSTANCE /* hInstance */, HINSTANCE /* hPrevInstance */, LPSTR /* lpCmdLine */, int nCmdShow)
+extern "C" int main_gui(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */, LPSTR /* lpCmdLine */, int nCmdShow)
 {
   MSG msg;
+  hFuseDllInstance = hInstance;
 
   // set path in order to find encfs.exe
   SetPath();
 
   // check Dokan version
   if (!CheckDokan()) {
-    MessageBox(NULL, _T("Dokan library not found or wrong version.\r\nencfs4win require Dokan 0.6.0 or later."), _T("EncFS"), MB_ICONERROR);
+    MessageBox(NULL, _T("Dokan library not found or wrong version.\r\nencfs4win requires Dokan 2.x (dokan2.dll)."), _T("EncFS"), MB_ICONERROR);
     EnableAutoStart(false);
     return 1;
   }

@@ -32,7 +32,7 @@ Encfs4win is also now available through the [Chocolatey](https://github.com/choc
 Encfs4win has a few dependencies: 
 
 * [Visual Studio 2022](https://visualstudio.microsoft.com/downloads/) - For building the project (including the MSVC v143 toolset and a Windows 10/11 SDK). Visual Studio 2015 (v140) is no longer required.
-* [Dokan library](https://github.com/dokan-dev/dokany) - Handles FUSE portion of software.  You can use either legacy (e.g., v0.7.4) or latest (v1.0). 
+* [Dokan library](https://github.com/dokan-dev/dokany) - Handles FUSE portion of software. Prefer a system install of **Dokan 2.3.x** (`DokanLibrary2`). The build links `dokan2` / `dokanfuse2`. 
 * [TinyXML2 library](https://github.com/leethomason/tinyxml2) - Reads and writes configuration files for encfs.
 * [Easylogging++](https://github.com/easylogging/easyloggingpp) - Provides logging functionality. 
 * [OpenSSL library](https://github.com/openssl/openssl) - Always use the latest version.  Note that you must have Perl installed in order to build OpenSSL!

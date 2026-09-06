@@ -7,12 +7,11 @@
 #include "unistd.h"
 #include <fcntl.h>
 #include <fuse.h>
+#include <utils.h>
 #include <winioctl.h>
 #include <direct.h>
 #include <vector>
 #include <Shobjidl.h>
-
-time_t filetimeToUnixTime(const FILETIME *ft);
 
 void pthread_mutex_init(pthread_mutex_t *mtx, int)
 {
@@ -768,9 +767,6 @@ unix::closedir(unix::DIR* dir)
   free(dir);
   return 0;
 }
-
-void utf8_to_wchar_buf(const char *src, wchar_t *res, int maxlen);
-std::string wchar_to_utf8_cstr(const wchar_t *str);
 
 struct unix::dirent*
   unix::readdir(unix::DIR* dir)

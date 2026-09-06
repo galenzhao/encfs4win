@@ -138,6 +138,12 @@ if not defined OPENSSL_ROOT (
     if exist "%PROJECT_DIR%\deps\openssl\install-dir\include\openssl\ssl.h" set "OPENSSL_ROOT=%PROJECT_DIR%\deps\openssl\install-dir"
 )
 if not defined DOKAN_ROOT (
+    if defined DokanLibrary2 if exist "%DokanLibrary2%\x86\lib\dokan2.lib" if exist "%DokanLibrary2%\include\fuse.h" set "DOKAN_ROOT=%DokanLibrary2%"
+)
+if not defined DOKAN_ROOT (
+    if exist "%PROJECT_DIR%\deps\dokan\Win32\Release\dokan2.lib" if exist "%PROJECT_DIR%\deps\dokan\dokan_fuse\include\fuse.h" set "DOKAN_ROOT=%PROJECT_DIR%\deps\dokan"
+)
+if not defined DOKAN_ROOT (
     if exist "%PROJECT_DIR%\deps\dokan\Win32\Release\dokan1.lib" if exist "%PROJECT_DIR%\deps\dokan\dokan_fuse\include\fuse.h" set "DOKAN_ROOT=%PROJECT_DIR%\deps\dokan"
 )
 
@@ -177,12 +183,27 @@ if NOT %ERRORLEVEL% == 0 goto :no_easyloggingpp
 REM dokany
 call build-dokany.bat
 if NOT %ERRORLEVEL% == 0 goto :no_dokany
+if not defined DOKAN_ROOT (
+    if defined DokanLibrary2 set "DOKAN_ROOT=%DokanLibrary2%"
+)
 if not defined DOKAN_ROOT set "DOKAN_ROOT=%PROJECT_DIR%\deps\dokan"
-if NOT exist "%DOKAN_ROOT%\dokan_fuse\include\fuse.h" set "DOKAN_ROOT=%PROJECT_DIR%\deps\dokan"
+REM Strip trailing backslash — otherwise msbuild /p:"path\" eats the closing quote
+if "%DOKAN_ROOT:~-1%"=="\" set "DOKAN_ROOT=%DOKAN_ROOT:~0,-1%"
+if not defined DOKAN_LIB_DIR (
+    if exist "%DOKAN_ROOT%\x86\lib\dokan2.lib" (
+        set "DOKAN_LIB_DIR=%DOKAN_ROOT%\x86\lib"
+    ) else if exist "%DOKAN_ROOT%\Win32\Release\dokan2.lib" (
+        set "DOKAN_LIB_DIR=%DOKAN_ROOT%\Win32\Release"
+    ) else if defined DokanLibrary2_LibraryPath_x86 (
+        set "DOKAN_LIB_DIR=%DokanLibrary2_LibraryPath_x86%"
+    )
+)
+if "%DOKAN_LIB_DIR:~-1%"=="\" set "DOKAN_LIB_DIR=%DOKAN_LIB_DIR:~0,-1%"
 
 echo.
 echo OPENSSL_ROOT=%OPENSSL_ROOT%
 echo DOKAN_ROOT=%DOKAN_ROOT%
+echo DOKAN_LIB_DIR=%DOKAN_LIB_DIR%
 echo.
 
 REM (Clean,)? Build encfs 
@@ -190,11 +211,40 @@ echo.
 echo ==================================================
 echo                   BUILDING ENCFS             
 echo ==================================================
-msbuild encfs/encfs.sln /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=%ENCFS_PLATFORM_TOOLSET% /p:WindowsTargetPlatformVersion=%ENCFS_WINSDK_VERSION% /t:Clean,Build
+msbuild encfs/encfs.sln /p:Configuration=Release /p:Platform=x86 /p:PlatformToolset=%ENCFS_PLATFORM_TOOLSET% /p:WindowsTargetPlatformVersion=%ENCFS_WINSDK_VERSION% /p:DOKAN_ROOT="%DOKAN_ROOT%" /p:DOKAN_LIB_DIR="%DOKAN_LIB_DIR%" /t:Clean,Build
 
 REM verify necessary executables were successfully installed  
 if NOT exist ".\encfs\Release\encfs.exe" goto :build_failure
 if NOT exist ".\encfs\Release\encfsctl.exe" goto :build_failure
+
+REM Copy runtime DLLs next to the executables (Win32 / x86)
+echo.
+echo ==================================================
+echo              COPYING RUNTIME DLLS
+echo ==================================================
+set "RELEASE_DIR=%PROJECT_DIR%\encfs\Release"
+set "DOKAN_DLL_DIR="
+if exist "%DOKAN_ROOT%\x86\dokanfuse2.dll" set "DOKAN_DLL_DIR=%DOKAN_ROOT%\x86"
+if not defined DOKAN_DLL_DIR if exist "%DOKAN_ROOT%\Win32\Release\dokanfuse2.dll" set "DOKAN_DLL_DIR=%DOKAN_ROOT%\Win32\Release"
+if not defined DOKAN_DLL_DIR if exist "%DOKAN_ROOT%\dokanfuse2.dll" set "DOKAN_DLL_DIR=%DOKAN_ROOT%"
+
+if not defined DOKAN_DLL_DIR (
+    echo Failed to locate dokanfuse2.dll for runtime copy.
+    goto :build_failure
+)
+
+copy /Y "%DOKAN_DLL_DIR%\dokanfuse2.dll" "%RELEASE_DIR%\" >nul
+if exist "%DOKAN_DLL_DIR%\dokan2.dll" copy /Y "%DOKAN_DLL_DIR%\dokan2.dll" "%RELEASE_DIR%\" >nul
+if exist "%DOKAN_ROOT%\dokan2.dll" if not exist "%RELEASE_DIR%\dokan2.dll" copy /Y "%DOKAN_ROOT%\dokan2.dll" "%RELEASE_DIR%\" >nul
+if exist "%OPENSSL_ROOT%\bin\libeay32.dll" copy /Y "%OPENSSL_ROOT%\bin\libeay32.dll" "%RELEASE_DIR%\" >nul
+if exist "%OPENSSL_ROOT%\bin\ssleay32.dll" copy /Y "%OPENSSL_ROOT%\bin\ssleay32.dll" "%RELEASE_DIR%\" >nul
+
+if NOT exist "%RELEASE_DIR%\dokanfuse2.dll" goto :build_failure
+if NOT exist "%RELEASE_DIR%\libeay32.dll" goto :build_failure
+if NOT exist "%RELEASE_DIR%\ssleay32.dll" goto :build_failure
+
+echo Copied runtime DLLs to %RELEASE_DIR%
+dir /b "%RELEASE_DIR%\*.dll"
 
 goto :build_success
 

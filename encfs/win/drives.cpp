@@ -12,6 +12,7 @@
 #include "guiutils.h"
 #include "FileUtils.h"
 #include "fuse.h"
+#include <utils.h>
 
 static HANDLE GetOldSubProject(DWORD pid);
 

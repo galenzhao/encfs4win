@@ -21,43 +21,55 @@ REM You should have received a copy of the GNU Lesser General Public License
 REM along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-REM versioning variables 
+REM Prefer a system Dokan 2.x install (compatible with the installed driver).
 set SOURCE_URI=https://github.com/dokan-dev/dokany.git
-
-REM Allow user to choose to use legacy dokan or not 
-set USE_LEGACY_DOKAN=
-
-REM provide legacy dokan support 
-if defined USE_LEGACY_DOKAN (
-  set VERSION=v0.7.4
-  set VERSION_STR=0.7.4
-) else (
-  set VERSION=v1.3.1.1000
-  set VERSION_STR=v1.3.1.1000
-)
-
+set VERSION=v2.3.1.1000
+set VERSION_STR=v2.3.1.1000
+set SRC_DIR_NAME=dokan
 
 
 REM ========= DO NOT EDIT BELOW THIS LINE =====================
 
 
-
-REM set up some globally-constant settings
-set SRC_DIR_NAME=dokan
-
-
-REM don't bother if they already have an installation
+REM Prefer already-configured DOKAN_ROOT that looks like Dokan 2.x
 if defined DOKAN_ROOT (
-  if exist "%DOKAN_ROOT%\Win32\Release\dokan1.lib" (
-    if exist "%DOKAN_ROOT%\Win32\Release\dokanfuse1.lib" (goto :already_installed)
+  if exist "%DOKAN_ROOT%\x86\lib\dokan2.lib" (
+    if exist "%DOKAN_ROOT%\x86\lib\dokanfuse2.lib" (
+      if exist "%DOKAN_ROOT%\include\fuse.h" (goto :already_installed)
+    )
+  )
+  if exist "%DOKAN_ROOT%\Win32\Release\dokan2.lib" (
+    if exist "%DOKAN_ROOT%\Win32\Release\dokanfuse2.lib" (
+      if exist "%DOKAN_ROOT%\dokan_fuse\include\fuse.h" (goto :already_installed)
+    )
+  )
+)
+
+REM Prefer the official Dokan 2.x installer environment variables
+if defined DokanLibrary2 (
+  if exist "%DokanLibrary2%\x86\lib\dokan2.lib" (
+    if exist "%DokanLibrary2%\x86\lib\dokanfuse2.lib" (
+      if exist "%DokanLibrary2%\include\fuse.h" (
+        for %%I in ("%DokanLibrary2%") do (
+          endlocal & set "DOKAN_ROOT=%%~fI"
+        )
+        echo.
+        echo ==================================================
+        echo     Using installed Dokan 2.x at DOKAN_ROOT
+        echo ==================================================
+        echo DOKAN_ROOT=%DOKAN_ROOT%
+        echo.
+        exit /b 0
+      )
+    )
   )
 )
 
 
-REM Failed to find dokan -- ask user if they want us to build it for them
+REM Failed to find Dokan -- ask user if they want us to build it for them
 echo.
 if "%INTERACTIVE%"=="1" (
-    SET /P CONFIRM_BUILD="Dokan (DOKAN_ROOT) was not detected.  Should we install it now? (Y/n): "
+    SET /P CONFIRM_BUILD="Dokan 2.x (DOKAN_ROOT / DokanLibrary2) was not detected.  Build v2.3.1 from source? (Y/n): "
     if /I NOT "!CONFIRM_BUILD!"=="y" exit /b 1
 )
 
@@ -78,39 +90,20 @@ git clean -ffdx
 git reset --hard %VERSION%
 git checkout %VERSION%
 
-REM upgrade legacy solution 
-if defined USE_LEGACY_DOKAN (
-  echo.
-  echo ~~~~~ Upgrading legacy solution ~~~~~
-  echo.
-  cmd /c devenv "dokan.sln" /upgrade
-)
-
-REM build libraries 
+REM build libraries (user-mode only; driver comes from the Dokan installer)
 echo.
 echo ==================================================
 echo              BUILDING DOKANY LIBRARIES             
 echo ==================================================
 if not defined ENCFS_PLATFORM_TOOLSET set ENCFS_PLATFORM_TOOLSET=v143
 if not defined ENCFS_WINSDK_VERSION set ENCFS_WINSDK_VERSION=10.0
-if defined USE_LEGACY_DOKAN (
-  msbuild dokan.sln /p:WindowsTargetPlatformVersion=%ENCFS_WINSDK_VERSION% /p:PlatformToolset=%ENCFS_PLATFORM_TOOLSET% /p:ForceImportBeforeCppTargets="%DEPS_DIR%\dokan-legacy.props" /p:Configuration=Release /p:Platform=Win32 /t:Clean,Build
-) else (
-  msbuild dokan.sln /p:WindowsTargetPlatformVersion=%ENCFS_WINSDK_VERSION% /p:PlatformToolset=%ENCFS_PLATFORM_TOOLSET% /p:Configuration=Release /p:Platform=Win32 /t:Clean,Build
-)
+msbuild dokan.sln /p:WindowsTargetPlatformVersion=%ENCFS_WINSDK_VERSION% /p:PlatformToolset=%ENCFS_PLATFORM_TOOLSET% /p:Configuration=Release /p:Platform=Win32 /t:dokan;dokan_fuse
 
 REM verify necessary libraries were successfully built 
-if defined USE_LEGACY_DOKAN (
-  if NOT exist ".\Win32\Release\dokan.lib" goto :build_failure
-  if NOT exist ".\Win32\Release\dokanfuse.lib" goto :build_failure
-  copy ".\Win32\Release\dokan.lib" ".\Win32\Release\dokan1.lib"
-  copy ".\Win32\Release\dokanfuse.lib" ".\Win32\Release\dokanfuse1.lib"
-) else (
-  if NOT exist ".\Win32\Release\dokan1.lib" goto :build_failure
-  if NOT exist ".\Win32\Release\dokan1.dll" goto :build_failure
-  if NOT exist ".\Win32\Release\dokanfuse1.lib" goto :build_failure
-  if NOT exist ".\Win32\Release\dokanfuse1.dll" goto :build_failure
-)
+if NOT exist ".\Win32\Release\dokan2.lib" goto :build_failure
+if NOT exist ".\Win32\Release\dokan2.dll" goto :build_failure
+if NOT exist ".\Win32\Release\dokanfuse2.lib" goto :build_failure
+if NOT exist ".\Win32\Release\dokanfuse2.dll" goto :build_failure
 
 REM set DOKAN_ROOT environment variable for the caller
 for %%I in ("%CD%") do (

@@ -57,8 +57,7 @@ static const char rcsid[] =
 #include <string>
 
 #include "readpassphrase.h"
-
-std::string wchar_to_utf8_cstr(const wchar_t *str);
+#include <utils.h>
 
 char *
 readpassphrase(const char *prompt, char *buf, size_t bufsiz, int flags)
